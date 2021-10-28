@@ -1,0 +1,492 @@
+---
+title: "president_ask"
+author: "Seo eunyu"
+date: '2021 4 26 '
+output: html_document
+---
+# 0. 패키지 모두 불러오기
+```{r}
+library(tidyverse)
+library(tidytext)
+library(stringr) # 텍스트 전처리시 사용할 string_xxx 함수가 있는 라이브러리
+library(readxl) # 엑셀 파일 불러오기 위한 라이브러리
+library(scales) # 그래프 축 조정 라이브러리 
+library(gridExtra) # 워드 클라우드 여러개 불러오기 위한 라이브러리
+library(ggwordcloud) #ggplot을 이용해서 워드 클라우드를 그리는 라이브러리
+library(tidylo) #로그오즈비를 구하기 위해 사용하는 라이브러리
+library(ggthemes) # ggplot을 꾸미는 라이브러리
+library(KoNLP)# 한국어 형태소 분석 라이브러리
+useNIADic() # NIA 사전 사용
+library(showtext) # 구글 텍스트 사용 가능한 라이브러리
+font_add_google(name = "Nanum Gothic", family = "nanumgothic") # '나눔고딕' 폰트 적용
+font_add_google(name = "Black Han Sans", family = "blackhansans") # '검은고딕' 폰트 적용
+showtext_auto() # 추가한 텍스트 사용
+
+```
+
+# 1. 첨부된 대통령 취임사를 사용하여 4명 대통령들의 연설문을 이용하여 다음에 답하시오.
+### 단, 단어 길이는 적어도 2이상이어야 함
+
+
+## (1) 4명의 대통령별로 가장 많이 사용된 각각 상위 단어 10개를 뽑아서 막대그래프를 그리시오. (10)
+### 단, 막대 그래프에 단어는 빈도순으로 큰 것부터 작은 순으로 나타내시오.
+### 폰트는 나눔고딕을 사용하시오.
+### 화면에 출력 창은 한번에 4개의 그래프가 동시에 나타나도록 하시오.
+
+
+```{r}
+# 원본 파일 불러오기
+DF<-read_excel('역대대통령취임사_최근4명.xlsx') # 기본 document에 파일이 들어있어서 파일 경로 쓸 필요 없음
+
+# 토큰화 (띄어쓰기 (word) 단위)
+word_space<-DF %>% 
+  unnest_tokens(input=content,
+                output = word,
+                token="words")
+
+# 기본적인 전처리
+word_space<-word_space %>% 
+  mutate(word=str_replace_all(word, "[^가-힣]", " "), #힌글 이외에 모두 공백으로 대체. 숫자도 대체함.
+         word=str_squish(word))
+
+# 단어 빈도 구하기
+frequency<-word_space %>% 
+  count(President, word) %>% 
+  filter(str_count(word)>1)
+
+# 대통령별로 사용 빈도가 큰 단어 보기
+top10<-frequency %>% 
+  group_by(President) %>% 
+  slice_max(n,n=10,with_ties = F)
+
+top10 %>% filter(President=="노무현")
+top10 %>% filter(President=="이명박")
+top10 %>% filter(President=="박근혜")
+top10 %>% filter(President=="문재인")
+
+# 그래프 순서 정하기
+top10$President <- factor(top10$President,
+                          levels = c("노무현", "이명박", "박근혜", "문재인"))
+
+# 막대그래프 그리기
+top10 %>% 
+  ggplot(aes(x=reorder_within(x=word,by=n,within=President), 
+             y=n, 
+             fill=President))+
+  labs(x = "", y = "빈도수 (n)", title = "취임사에서 각 대통령이 사용한 단어수") +
+  scale_fill_brewer(name = '대통령',palette = 'Paired')+
+  geom_text(aes(label = n, hjust = -0.5),
+            color = "black", size=3)+
+  geom_col()+
+  coord_flip()+
+  facet_wrap(~President,
+             scales="free_y")+
+  scale_x_reordered()+
+  labs(x=NULL)+
+  theme(text=element_text(family="nanumgothic", size=12))+
+  theme(legend.box.background = element_rect(fill = "skyblue"), 
+        legend.box.margin = margin(3, 3, 3, 3))
+
+```
+
+
+## (2) 4명의 대통령별로 가장 많이 사용된 각각 상위 단어를 이용하여 반드시 ggplot을 이용하여 워드클라우드를 그리시오. (10)
+
+
+### 단, 최소 단어는 3, 최대 단어는 제한 없음, 글자 크기는 최소 3, 최대 20으로 하시오.
+### 폰트는 나눔고딕을 사용하시오.
+### 글자색은 반드시 화려한 칼라로 나오게 하시오.
+### 배경없는 테마를 사용하시오.
+### 화면에 출력 창은 한번에 4개의 그래프가 동시에 나타나도록 하시오.
+
+```{r}
+# 대통령별로 가장 많이 사용한 상위 단어
+Noe<-top10[top10$President=="노무현",] #top10 %>% filter(President=="노무현")와 동일
+Lee<-top10[top10$President=="이명박",]
+Park<-top10[top10$President=="박근혜",]
+Moon<-top10[top10$President=="문재인",]
+
+# 노무현 대통령 워드 클라우드
+word1<-Noe %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Noe), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234, family="nanumgothic") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("노무현 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 이명박 대통령 워드 클라우드
+word2<-Lee %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Lee), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234,family="nanumgothic") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("이명박 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 박근혜 대통령 워드 클라우드
+word3<-Park %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Park), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234, family="nanumgothic") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("박근혜 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 문재인 대통령 워드 클라우드
+word4<-Moon %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Moon), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234,family="nanumgothic") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("문재인 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 각 워드 클라우드 하나로 합치기
+grid.arrange(word1,word2,word3,word4,nrow=2, ncol=2)
+```
+
+
+## (3) 4명의 대통령별로가장 많이 사용된 각각 상위 명사 10개를 뽑아서 막대그래프를 그리시오. (10)
+
+
+### 단, 막대 그래프에 단어는 빈도순으로 큰 것부터 작은 순으로 나타내시오.
+### 폰트는 "blackhansans"를 사용하시오.
+### 화면에 출력 창은 한번에 4개의 그래프가 동시에 나타나도록 하시오.
+
+```{r}
+# 기본적인 전처리
+speeches<-DF %>% 
+  mutate(content=str_replace_all(content, "[^가-힣]", " "), #힌글 이외에 전처리. 숫자도 없앰
+         content=str_squish(content))
+
+# 토큰화 (단어 (형태소 분석) 단위)
+speeches<-speeches %>% 
+  unnest_tokens(input=content,
+                output = word,
+                token=extractNoun)
+
+# 단어 빈도 구하기
+frequency<-speeches %>% 
+  count(President, word) %>% 
+  filter(str_count(word)>1)
+
+frequency
+
+# 대통령별로 사용 빈도가 큰 단어 보기
+top10<-frequency %>% 
+  group_by(President) %>% 
+  slice_max(n,n=10,with_ties = F)
+
+top10 %>% filter(President=="노무현")
+top10 %>% filter(President=="이명박")
+top10 %>% filter(President=="박근혜")
+top10 %>% filter(President=="문재인")
+
+# 그래프 순서 정하기
+top10$President <- factor(top10$President,
+                          levels = c("노무현", "이명박", "박근혜", "문재인"))
+
+# 막대그래프 그리기
+top10 %>% 
+  ggplot(aes(x=reorder_within(x=word,by=n,within=President), 
+             y=n, 
+             fill=President))+
+  labs(x = "", y = "빈도수 (n)", title = "취임사에서 각 대통령이 사용한 단어수") +
+  scale_fill_brewer(name = '대통령',palette = 'Set2')+
+  geom_text(aes(label = n, hjust = -0.5),
+            color = "black", size=3)+
+  geom_col()+
+  coord_flip()+
+  facet_wrap(~President,
+             scales="free_y")+
+  scale_x_reordered()+
+  labs(x=NULL)+
+  theme(text=element_text(family="blackhansans", size=15))+
+    theme(legend.box.background = element_rect(fill = "gray"), 
+        legend.box.margin = margin(3, 3, 3, 3))
+
+
+```
+
+
+## (4) 4명의 대통령별로 가장 많이 사용된 각각 상위 명사를 이용하여 반드시 ggplot을 이용하여 워드클라우드를 그리시오. (10)
+
+
+### 단, 최소 단어는 3, 최대 단어는 제한 없음, 글자 크기는 최소 3, 최대 20으로 하시오.
+### 폰트는 blackhansans"를 사용하시오.
+### 글자색은 반드시 화려한 칼라로 나오게 하시오.
+### 배경없는 테마를 사용하시오. 
+ 
+
+```{r}
+# 대통령별로 가장 많이 사용한 상위 단어
+Noe<-top10[top10$President=="노무현",] #top10 %>% filter(President=="노무현")와 동일
+Lee<-top10[top10$President=="이명박",]
+Park<-top10[top10$President=="박근혜",]
+Moon<-top10[top10$President=="문재인",]
+
+# 노무현 대통령 워드 클라우드
+word1<-Noe %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Noe), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234, family="blackhansans") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("노무현 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 이명박 대통령 워드 클라우드
+word2<-Lee %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Lee), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234,family="blackhansans") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("이명박 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 박근혜 대통령 워드 클라우드
+word3<-Park %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Park), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234, family="blackhansans") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("박근혜 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 문재인 대통령 워드 클라우드
+word4<-Moon %>% 
+  ggplot(aes(label = word, size = n, 
+             color = factor(sample.int(n=10, size=nrow(Moon), replace = TRUE)))) + # 색깔 지정
+  geom_text_wordcloud(seed = 1234, family="blackhansans") + # 폰트 적용
+  scale_radius(limits = c(3, NA), # 최소, 최대 단어 빈도
+               range = c(3, 20)) + # 최소, 최대 글자 크기
+  ggtitle("문재인 대통령 워드클라우드") + # 제목 지정
+  theme_minimal() #배경없는 테마 적용
+
+# 각 워드 클라우드 하나로 합치기
+grid.arrange(word1,word2,word3,word4,nrow=2, ncol=2)
+ 
+```
+
+
+ 
+# 2. 첨부된 대통령 취임사를 사용하여 4명 대통령들의 연설문을 서로 비교하여 분석하고자 한다. 다음의 질문들에 답하시오. 단, 단어 길이는 적어도 2이상이어야 함
+
+
+## (1) 4명의 대통령이 중요하게 사용된 명사 단어를 비교하기 위해 각 대통령별 tf-idf가 큰 순서대로 각 10개의 단어들 나타내고 각 대통령들이 무엇을 강조했는지를 설명하시오. (10)
+
+
+### 단, 대통령이름, 단어(woard), 단어수(n), tf, idf도 같이 출력하시오.
+
+
+```{r}
+# 기본적인 전처리 (되어 있지만 다시 진행함)
+speeches<-DF %>% 
+  mutate(content=str_replace_all(content, "[^가-힣]", " "), #힌글 이외에 전처리. 숫자도 없앰
+         content=str_squish(content))
+
+# 토큰화 (단어 (형태소 분석) 단위) (되어 있지만 다시 진행함)
+speeches<-speeches %>% 
+  unnest_tokens(input=content,
+                output = word,
+                token=extractNoun)
+
+# 단어 빈도 구하기 (되어 있지만 다시 진행함)
+frequency<-speeches %>% 
+  count(President, word) %>% 
+  filter(str_count(word)>1)
+
+# tf-idf 구하기
+frequency<-frequency %>% 
+  bind_tf_idf(term=word,
+              document=President,
+              n=n) %>% 
+  arrange(-tf_idf)
+
+frequency
+
+# 노무현 대통령이 강조한 단어
+frequency %>% filter(President=="노무현")
+
+# 이명박 대통령이 강조한 단어
+frequency %>% filter(President=="이명박")
+
+# 박근혜 대통령이 강조한 단어
+frequency %>% filter(President=="박근혜")
+
+# 문재인 대통령이 강조한 단어
+frequency %>% filter(President=="문재인")
+
+```
+
+
+## (2) 앞 (1)에서 나온 결과인 tf-idf를 이용하여 4명의 각 대통령에 대해 크기 순의 tf-idf 막대 그래프를 그리시오. (10)
+ 
+### 단, 단어 순은 tf-idf가 큰 순서대로 각 10개의 단어들 나타내시오.
+### 화면에 출력 창은 한번에 4개의 그래프가 동시에 나타나도록 하시오.
+
+```{r}
+# 주요 단어 추출
+top10 <- frequency %>%
+  group_by(President) %>%
+  slice_max(tf_idf, n = 10, with_ties = F)
+
+# 그래프 순서 정하기
+top10$president <- factor(top10$President,
+                         levels = c("노무현", "이명박", "박근혜", "문재인"))
+
+# 막대 그래프 만들기
+top10 %>% 
+  ggplot(aes(x = reorder_within(x=word, by=tf_idf, within=President),
+             y = tf_idf,
+             fill = President)) +
+  scale_fill_brewer(name = '대통령',palette = 'Accent')+
+  labs(x = "", y = "tf-idf", title = "각 대통령이 다른 대통령에 비해 강조한 단어") +
+  geom_text(aes(label = round(tf_idf,4) , hjust = -0.2),
+            color = "dark grey", size=3)+
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ president, scales = "free", ncol = 2) +
+  scale_x_reordered() +
+  labs(x = NULL) +
+  theme(text = element_text(family = "nanumgothic", size=12))+
+    theme(legend.box.background = element_rect(fill = "pink"), 
+        legend.box.margin = margin(3, 3, 3, 3))
+
+
+```
+
+
+## (3) 4명의 대통령이 중요하게 사용된 명사 단어를 비교하기 위해 각 대통령별 가중로그오즈비 (weighted log odds ratio)가 큰 순서대로 각 10개의 단어들 나타내고 각 대통령들이 무
+엇을 강조했는지를 (1)의 tf-idf와 비교하여 설명하시오. (10)
+
+### 단, 대통령이름, 단어(woard), 단어수(n), tf, idf, tf-idf도 같이 출력하시오.
+
+
+```{r}
+# 로그 오즈비 구하기
+frequency_lo<- frequency %>% 
+  bind_log_odds(set = President, feature = word, n = n) %>%
+  arrange(desc(log_odds_weighted))
+
+frequency_lo
+
+# 노무현 대통령의 상대적인 로그오즈 (상대적으로 많이 쓰이는 단어)
+frequency_lo %>% filter(President=="노무현")
+
+# 이명박 대통령의 상대적인 로그오즈 (상대적으로 많이 쓰이는 단어)
+frequency_lo %>% filter(President=="이명박")
+
+# 박근혜 대통령의 상대적인 로그오즈 (상대적으로 많이 쓰이는 단어)
+frequency_lo %>% filter(President=="박근혜")
+
+# 문재인 대통령의 상대적인 로그오즈 (상대적으로 많이 쓰이는 단어)
+frequency_lo %>% filter(President=="문재인")
+
+```
+
+
+## (4) 앞 (1)에서 나온 결과인 가중로그오즈비(weighted log odds ratio)를 이용하여 4명의 각 대통령에 대해 크기 순의 가중로그오즈비 막대그래프를 그리시오. (10)
+
+### 단, 단어 순은 가중로그오즈비가 큰 순서대로 각 10개의 단어들 나타내시오.
+### 화면에 출력 창은 한번에 4개의 그래프가 동시에 나타나도록 하시오.
+
+```{r}
+# 주요 단어 추출
+top10_lo <- frequency_lo %>%
+  group_by(President) %>%
+  slice_max(log_odds_weighted, n = 10, with_ties = F)
+
+# 그래프 순서 정하기
+top10_lo$President <- factor(top10_lo$President,
+                                 levels = c("노무현", "이명박", "박근혜", "문재인"))
+
+# 막대 그래프 만들기
+top10_lo %>% 
+  ggplot(aes(x = reorder_within(x=word, by=log_odds_weighted, within=President),
+             y = log_odds_weighted,
+             fill = President)) +
+  scale_fill_brewer(name = '대통령',palette = 'Set3')+
+  labs(x = "", y = "로그 오즈비 (Log odds ratio)", title = "각 대통령의 취임사에서 상대적으로 많이 나오는 단어") +
+  geom_text(aes(label = round(log_odds_weighted,4) , hjust = -0.2),
+            color = "dark grey", size=3) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ President, scales = "free", ncol = 2) +
+  scale_x_reordered() +
+  labs(x = NULL) +
+  theme(text = element_text(family = "nanumgothic", size=12))+
+  theme(legend.box.background = element_rect(fill = "purple"), 
+        legend.box.margin = margin(3, 3, 3, 3))
+
+
+```
+
+
+## (5) 노무현 대통령과 이명박 대통령의 각 취임사의 중요단어를 비교하고자 한다. 노무현 대통령과 이명박 대통령의 취임사에서 각각 사용된 단어들의 RR(relative risk 또는 상대 효율)과 로그RR(log relative risk)를 중요한 순서대로 추출하여 두 대통령별 각각 10개씩 출력하시오. (10)
+
+### 단, RR은 노무현대통령을 분자로 이명박대통령은 분모로 할 것.
+
+
+```{r}
+# 단어 빈도 구하기
+frequency<-speeches %>% 
+  count(President, word) %>% 
+  filter(str_count(word)>1)
+
+# 노무현 대통령 취임사에서 비중이 높은 단어 알아보기
+frequency_wide <- frequency %>%
+  pivot_wider(names_from = President,
+              values_from = n,
+              values_fill = list(n = 0)) %>% 
+  mutate(ratio_noe = ((노무현+ 1)/(sum(노무현 + 1))), # 노무현 대통령 취임사에서의 단어 비중
+         ratio_lee = ((이명박 + 1)/(sum(이명박 + 1))), # 이명박 대통령 취임사에서의 단어 비중
+         rr = ratio_noe/ratio_lee, # 상대위험도(RR) 변수 추가
+         log_rr = log(((노무현 + 1)/(sum(노무현 + 1)))/
+                        ((이명박 + 1)/(sum(이명박 + 1))))) %>% 
+  dplyr::select(-문재인,-박근혜) %>% 
+  arrange(-log_rr)
+
+frequency_wide
+
+# 이명박 대통령 취임사에서 비중이 높은 단어 알아보기
+frequency_wide %>% 
+  arrange(log_rr)
+
+# 로그 RR을 이용해 각 취임사에서 상대적으로 중요한 단어를 각각 10개씩 추출
+top10 <- frequency_wide %>%
+  group_by(President = ifelse(log_rr > 0, "노무현", "이명박")) %>%
+  slice_max(abs(log_rr), n=10, with_ties=FALSE) %>%
+  arrange(-log_rr) %>%
+  dplyr::select(word, 노무현, 이명박, log_rr, President) %>%
+  print(n=Inf)
+
+```
+
+
+## (6) (5)에서 나온 결과를 이용하여 로그RR(log relative risk)를 가지고 왼쪽(음수)는 이명박 대통령, 오른쪽(양수)은 노무현 대통령을 나타내는 막대 그래프를 그리시오.
+
+
+### 단, 단어 순은 로그RR 큰 순서대로 왼쪽과 오른쪽 각 10개의 단어들 나타내시오. (10)
+
+```{r}
+# 막대 그래프 그리기
+top10 %>% 
+  ggplot(aes(x = reorder(word, log_rr),
+             y = log_rr, 
+             fill = President)) +
+  scale_fill_brewer(name = '대통령', palette = 'Pastel1') +
+  labs(title = "이명박 / 노무현 대통령의 취임사 각각에서 상대적으로 중요한 단어") +
+  geom_col() +
+  coord_flip() +
+  labs(x = NULL) +
+  theme(text = element_text(family = "nanumgothic")) +
+  scale_color_economist() + theme_economist()
+```
